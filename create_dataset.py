@@ -8,21 +8,22 @@ from ultralytics import YOLO
 from sklearn.model_selection import train_test_split
 
 # --- 유저 지정 변수 ---
-LABEL_NAME      = 1                       # 이 포즈의 클래스 ID
+LABEL_NAME      = 9                       # 이 포즈의 클래스 ID
 TRAIN_RATIO     = 0.8                     # train/test 분할 비율
 CONF_THRESH     = 0.3                     # low-confidence 키포인트 컷오프
-UPPER_BODY_IDX  = list(range(0,11))       # 상반신 11개 kpt 인덱스
-FLIP_IDX        = [0,2,1,4,3,6,5,8,7,10,9] # 좌우 대칭 시 keypoint 재배치
+UPPER_BODY_IDX  = list(range(0,13))       # 상반신 13개 kpt 인덱스
+FLIP_IDX        = [0,2,1,4,3,6,5,8,7,10,9,12,11] # 좌우 대칭 시 keypoint 재배치
 OUTPUT_DIR      = "dataset_ad"  # 결과 저장 디렉토리
 
 # 증강 파라미터
 NOISE_STD       = 0.02
-ROT_ANGLES  = list(range(-45, 50, 5))
+ROT_ANGLES  = list(range(-45, 50, 10))
 # → [-45, -40, …, 0, …, 40, 45]
 
 # Shift: -0.1부터 +0.1까지 9단계(0.025 간격)로
 SHIFT_VALUES = np.linspace(-0.1, 0.1, 5)
 # → [-0.10, -0.075, -0.05, -0.025, 0, 0.025, 0.05, 0.075, 0.10]
+SCALE_FACTORS= [0.8, 0.9, 1.1, 1.2]
 
 # (dx,dy) 페어 생성, (0,0)은 원본에 이미 포함돼 있으니 제외
 SHIFTS = [
@@ -63,6 +64,14 @@ def augment_shift(kp, dx, dy):
         out += [x, y]
     return out
 
+def augment_scale(kp, scale):
+    out = []
+    for i in range(0, len(kp), 2):
+        x, y = kp[i] - 0.5, kp[i+1] - 0.5
+        xs, ys = x * scale + 0.5, y * scale + 0.5
+        out += [np.clip(xs, 0, 1), np.clip(ys, 0, 1)]
+    return out
+
 # --- 초기화 ---
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 cap = cv2.VideoCapture(0)
@@ -79,7 +88,7 @@ t0        = 0
 # keypoint 벡터만 모을 리스트
 raw_kp_vectors = []
 
-print("스페이스: 3초 뒤 keypoint 캡처 • q: 종료")
+print("스페이스: 5초 뒤 keypoint 캡처 • q: 종료")
 
 while True:
     ret, frame = cap.read()
@@ -91,8 +100,8 @@ while True:
     # capture countdown
     if capturing:
         elapsed = time.time() - t0
-        if elapsed < 3:
-            cv2.putText(vis, f"Capturing in {3-int(elapsed)}...",
+        if elapsed < 5:
+            cv2.putText(vis, f"Capturing in {5-int(elapsed)}...",
                         (20,40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,0,255), 3)
         else:
             if len(res.boxes) and res.keypoints is not None:
@@ -125,13 +134,23 @@ cv2.destroyAllWindows()
 # --- augmentation & split ---
 all_samples = []
 for vec in raw_kp_vectors:
+    # 1) 원본 + 노이즈 + 플립
     all_samples.append(vec)
-    all_samples.append( augment_noise(vec) )
-    all_samples.append( augment_flip(vec) )
+    all_samples.append(augment_noise(vec))
+    all_samples.append(augment_flip(vec))
+
+    # 2) Rotate → Shift → Scale → Flip
     for ang in ROT_ANGLES:
-        all_samples.append(augment_rotate(vec, ang))
-    for dx, dy in SHIFTS:
-        all_samples.append(augment_shift(vec, dx, dy))
+        vec_r = augment_rotate(vec, ang)
+        for dx in SHIFT_VALUES:
+            for dy in SHIFT_VALUES:
+                if dx == 0 and dy == 0:
+                    continue
+                vec_rs = augment_shift(vec_r, dx, dy)
+                for s in SCALE_FACTORS:
+                    vec_rss = augment_scale(vec_rs, s)
+                    all_samples.append(vec_rss)
+                    all_samples.append(augment_flip(vec_rss))
 
 # train/test split
 train, test = train_test_split(all_samples, train_size=TRAIN_RATIO, random_state=42)

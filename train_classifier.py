@@ -12,7 +12,7 @@ from torch.utils.data import Dataset, DataLoader
 DATA_DIR         = "./dataset_ad"
 TRAIN_PATTERN    = os.path.join(DATA_DIR, "train_*.csv")
 TEST_PATTERN     = os.path.join(DATA_DIR, "test_*.csv")
-MODEL_SAVE_PATH  = "./best_pose_classifier.pth"
+MODEL_SAVE_PATH  = "./pose_classifier.pth"
 BATCH_SIZE       = 32
 EPOCHS           = 30
 LR               = 1e-3

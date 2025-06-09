@@ -2,3 +2,7 @@ opencv-python
 ultralytics
 requests
 gradio
+torch
+pygame
+openai
+qrcode

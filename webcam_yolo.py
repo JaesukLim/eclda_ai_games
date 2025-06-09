@@ -3,19 +3,26 @@ import torch
 import torch.nn as nn
 import numpy as np
 from ultralytics import YOLO
+from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------
 # 설정
 # ---------------------------
 YOLO_WEIGHTS        = "./yolo11m-pose.pt"
-CLS_MODEL_PATH      = "./best_pose_classifier.pth"
+CLS_MODEL_PATH      = "./pose_classifier.pth"
 DEVICE              = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 CONF_THRESH         = 0.3   # keypoint 검출 신뢰도 컷오프
 CLASS_CONF_THRESH   = 0.5   # 분류기 softmax 컷오프
-UPPER_BODY_IDX      = list(range(0, 11))
+UPPER_BODY_IDX      = list(range(0, 13))
 
 ENERGY_TEMP        = 1.0        # energy score temperature T
 ENERGY_THRESHOLD   = 5.0
+
+FONT_PATH = "BMHANNAPro.ttf"
+FONT_SIZE = 32
+font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+labels = ["군인", "하트", "복싱", "가수", "닭", "꽃", "배꼽인사", "양궁", "야구선수(타자)", "없음"]
 
 def energy_score(logits, T=1.0):
     # logits: Tensor of shape [B, C]
@@ -75,6 +82,8 @@ while True:
 
     # 4.2) 키포인트 벡터 추출
     if result.keypoints is not None and result.keypoints.xy.shape[0] > 0:
+        if result.keypoints.conf is None:
+            continue
         xy   = result.keypoints.xy[0].cpu().numpy()    # (K,2)
         conf = result.keypoints.conf[0].cpu().numpy()  # (K,)
         h, w = frame.shape[:2]
@@ -94,20 +103,22 @@ while True:
             energy = -1 * energy_score(logits, ENERGY_TEMP).item()  # scalar
             pred_cls = int(logits.argmax(dim=1).item())
 
+
         # 4.4) “No Pose” 판정
         if energy is None or energy < ENERGY_THRESHOLD:
             text = f"No Pose (E={energy:.2f})" if energy is not None else "No Pose"
             color = (0, 0, 255)
         else:
-            text = f"Class: {pred_cls} (E={energy:.2f})"
+            text = f"Class: {labels[pred_cls]} (E={energy:.2f})"
             color = (0, 255, 0)
     else:
         text = "No Pose"
         color = (0, 0, 255)
 
-    # 4.5) 결과 텍스트 오버레이
-    cv2.putText(annotated, text, (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
+    pil_img = Image.fromarray(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_img)
+    draw.text((10, 10), text, font=font, fill=tuple(color[::-1]))
+    annotated = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
     # 4.6) 화면에 출력
     cv2.imshow("Annotated Frame", annotated)
